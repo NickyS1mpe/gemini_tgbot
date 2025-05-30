@@ -59,12 +59,6 @@ def init_prompt_botstatement(user_nickname, bot_nickname, group_name):
     persona = None
     pre_reply = None
 
-    # for setting_pairs in conf().get("customSet"):  ##TODO fix the Repeat same speech pattern as the last convo problem
-    #     for key, cusprompt in dict(setting_pairs).items():
-    #         if key == subreddit:
-    #             persona = cusprompt
-    #             pre_reply = setting_pairs["pre_reply"]
-    #             break
     if not persona:
         persona = bot["persona"]
         pre_reply = bot["pre_reply"]
