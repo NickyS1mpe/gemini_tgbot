@@ -1,0 +1,4 @@
+telepot
+google-generativeai
+bleach
+python-telegram-bot~=22.0
