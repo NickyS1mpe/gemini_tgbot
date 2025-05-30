@@ -25,6 +25,44 @@ SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
 }
 
+config = ''
+bot_token = ''
+persona = ''
+key = ''
+admin = ''
+bot_nickname = ''
+groups = []
+
+
+def load_config():
+    global config
+    global bot_token
+    global persona
+    global key
+    global admin
+    global bot_nickname
+    global groups
+
+    required_keys = ['config', 'bot_token', 'persona', 'key', 'admin', 'bot_nickname', 'groups']
+
+    for key in required_keys:
+        if key not in bot or not bot[key]:
+            # logger.error(f"Missing or empty configuration key: {key}")
+            raise ValueError(f"Missing or empty configuration key: {key}")
+
+    config = bot['config']
+    bot_token = bot['bot_token']
+    persona = bot['persona']
+    key = bot['key']
+    admin = bot['admin']
+    bot_nickname = bot['bot_nickname']
+    groups = bot['groups']
+
+    setup_logger(config)
+    GeminiApiConfig()
+
+    logger.info("Loading config successfully.")
+
 
 def build_submission_context(name, context, group_name):
     context_str = f'[system](#context)\n以下是{""} : {name} 在群名称为{group_name}中发的言论。\n'
@@ -58,20 +96,21 @@ def ask_by_user(ask_string):
     return res
 
 
-def init_prompt_botstatement(user_nickname, bot_nickname, group_name):
-    persona = None
-    pre_reply = None
-
-    if not persona:
-        persona = bot["persona"]
-        pre_reply = bot["pre_reply"]
+def init_prompt_bot_statement(user_nickname, group_name):
+    # persona = None
+    # pre_reply = None
+    #
+    # if not persona:
+    #     persona = bot["persona"]
+    #     pre_reply = bot["pre_reply"]
+    global persona
     persona = persona.format(n=user_nickname, k=bot_nickname, m=group_name)
-    pre_reply = pre_reply.format(n=user_nickname, k=bot_nickname, m=group_name)
+    # pre_reply = pre_reply.format(n=user_nickname, k=bot_nickname, m=group_name)
     # logger.info("PERSONA:" + persona)
-    return persona, pre_reply
+    return persona
 
 
-async def sydney_reply(context, bot_statement, user_nickname, bot_nickname, group_name, retry_count=0):
+async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_count=0):
     if retry_count > 3:
         logger.error("Failed after maximum number of retry times")
         return
@@ -80,15 +119,16 @@ async def sydney_reply(context, bot_statement, user_nickname, bot_nickname, grou
     context = bleach.clean(context).strip()
     context = "<|im_start|>system\n\n" + context
 
-    ask_string = f"Please reply to the last comment. No need to introduce yourself, just output the main text of your reply. Do not use parallelism, and do not repeat the content or format of previous replies."
+    ask_string = (f"Please reply to the last comment. No need to introduce yourself, just output the main text of your "
+                  f"reply. Do not use parallelism, and do not repeat the content or format of previous replies.")
 
     ask_string = bleach.clean(ask_string).strip()
     # logger.info(f"ask_string: {ask_string}")
 
     try:
-        persona, pre_reply = init_prompt_botstatement(user_nickname, bot_nickname, group_name)
+        prompt = init_prompt_bot_statement(user_nickname, group_name)
         model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest", safety_settings=SAFETY_SETTINGS,
-                                      system_instruction=persona + "\n\n" + context)
+                                      system_instruction=prompt + "\n\n" + context)
         gemini_messages = ask_by_user(ask_string)
         response = model.generate_content(gemini_messages)
         reply_text = response.text
@@ -106,18 +146,20 @@ async def sydney_reply(context, bot_statement, user_nickname, bot_nickname, grou
     except Exception as e:
         traceback.print_exc()
         logger.warning(e)
-        await sydney_reply(context, bot_statement, user_nickname, bot_nickname, group_name, retry_count + 1)
+        await sydney_reply(context, bot_statement, user_nickname, group_name, retry_count + 1)
 
 
 @staticmethod
 def GeminiApiConfig():
-    keys = bot['key']
-    keys = keys.split("|")
-    keys = [key.strip() for key in keys]
-    if not keys:
+    # keys = bot['key']
+    # keys = keys.split("|")
+    # keys = [key.strip() for key in keys]
+    if not key:
         raise Exception("Please set a valid API key in Config!")
-    api_key = random.choice(keys)
+    # api_key = random.choice(keys)
+    api_key = key
     genai.configure(api_key=api_key)
+    logger.info("Config Gemini API successfully.")
 
 
 def construct_context():
@@ -152,14 +194,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id = update.effective_chat.id
         reply_to_id = update.message.message_id
         user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
-        bot_nickname = context.bot.username or ""
+        # bot_nickname = context.bot.username or ""
         group_name = update.effective_chat.title or ""
         group_id = update.effective_chat.id
         is_reply_to_bot = False
         if update.message.reply_to_message:
             is_reply_to_bot = update.message.reply_to_message.from_user.id == context.bot.id
 
-        if group_id == -1002050374442 or group_id == -4166825212:
+        if group_id in groups:
             try:
                 if is_reply_to_bot or "糯糯" in user_input:
                     # if update.message.reply_to_message:
@@ -177,7 +219,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         context=ctr,
                         bot_statement="",
                         user_nickname=user_nickname,
-                        bot_nickname="糯糯",
                         group_name=group_name,
                     )
 
@@ -201,7 +242,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         context=user_input,
                         bot_statement="",
                         user_nickname=user_nickname,
-                        bot_nickname="糯糯",
+                        # bot_nickname="糯糯",
                         group_name=group_name,
                     )
 
@@ -250,11 +291,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 def main():
     try:
-        setup_logger(bot['config'])
-        GeminiApiConfig()
-
+        load_config()
         logger.info("***** TELEGRAM BOT START *****")
-        bot_token = bot['bot_token']
 
         if not bot_token or bot_token == "YOUR_BOT_TOKEN":
             logger.error('Error: no bot token found. Please set up your bot token in config.')
@@ -270,7 +308,6 @@ def main():
     except BaseException as e:
         logger.error(e)
     finally:
-
         logger.info("***** TELEGRAM BOT STOP *****")
         sys.exit()
 
