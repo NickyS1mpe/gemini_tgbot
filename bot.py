@@ -90,7 +90,7 @@ async def sydney_reply(context, bot_statement, user_nickname, bot_nickname, grou
         response = model.generate_content(gemini_messages)
         reply_text = response.text
         logger.info(reply_text)
-        print(reply_text)
+        # print(reply_text)
         if "I am an automated reply bot" not in reply_text:
             reply_text += bot_statement
         # content.reply(reply_text)
