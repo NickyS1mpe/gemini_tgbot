@@ -1,9 +1,12 @@
 import random
 import re
 import sys
+import traceback
+
 import google.generativeai as genai
 from google.generativeai.types.safety_types import HarmCategory, HarmBlockThreshold
 import bleach
+from telegram.error import TelegramError
 
 from logger_config import logger, setup_logger, load_log_file
 from config import bot
@@ -101,7 +104,6 @@ async def sydney_reply(context, bot_statement, user_nickname, bot_nickname, grou
         return reply_text
 
     except Exception as e:
-        import traceback
         traceback.print_exc()
         logger.warning(e)
         await sydney_reply(context, bot_statement, user_nickname, bot_nickname, group_name, retry_count + 1)
@@ -158,55 +160,92 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             is_reply_to_bot = update.message.reply_to_message.from_user.id == context.bot.id
 
         if group_id == -1002050374442 or group_id == -4166825212:
-            if is_reply_to_bot or "糯糯" in user_input:
-                # if update.message.reply_to_message:
-                #     reply_to_id = update.message.reply_to_message.message_id
+            try:
+                if is_reply_to_bot or "糯糯" in user_input:
+                    # if update.message.reply_to_message:
+                    #     reply_to_id = update.message.reply_to_message.message_id
 
-                logger.info(f"From user: {user_nickname} receive message: {user_input}")
+                    logger.info(f"From user: {user_nickname} receive message: {user_input}")
 
-                ctr = construct_context()
-                ctr += build_context(user_nickname, user_input)
-                msg.append({
-                    "username": user_nickname,
-                    "user_input": user_input})
+                    ctr = construct_context()
+                    ctr += build_context(user_nickname, user_input)
+                    msg.append({
+                        "username": user_nickname,
+                        "user_input": user_input})
 
-                reply = await sydney_reply(
-                    context=ctr,
-                    bot_statement="",
-                    user_nickname=user_nickname,
-                    bot_nickname="糯糯",
-                    group_name=group_name,
-                )
+                    reply = await sydney_reply(
+                        context=ctr,
+                        bot_statement="",
+                        user_nickname=user_nickname,
+                        bot_nickname="糯糯",
+                        group_name=group_name,
+                    )
 
-                msg.append({
-                    "username": "FROM_BOT",
-                    "user_input": reply})
-                if len(msg) > 15:
-                    msg.pop()
+                    msg.append({
+                        "username": "FROM_BOT",
+                        "user_input": reply})
+                    if len(msg) > 15:
+                        msg.pop()
 
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=reply,
-                    reply_to_message_id=reply_to_id
-                )
-            elif random.randint(1, 30) == 3:
-                logger.info(f"From user: {user_nickname} receive message: {user_input}")
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=reply,
+                        reply_to_message_id=reply_to_id
+                    )
+                elif random.randint(1, 30) == 3:
+                    logger.info(f"From user: {user_nickname} receive message: {user_input}")
 
-                build_context(user_nickname, user_input)
+                    build_context(user_nickname, user_input)
 
-                reply = await sydney_reply(
-                    context=user_input,
-                    bot_statement="",
-                    user_nickname=user_nickname,
-                    bot_nickname="糯糯",
-                    group_name=group_name,
-                )
+                    reply = await sydney_reply(
+                        context=user_input,
+                        bot_statement="",
+                        user_nickname=user_nickname,
+                        bot_nickname="糯糯",
+                        group_name=group_name,
+                    )
 
-                await context.bot.send_message(
-                    chat_id=update.effective_chat.id,
-                    text=reply,
-                    reply_to_message_id=reply_to_id
-                )
+                    await context.bot.send_message(
+                        chat_id=update.effective_chat.id,
+                        text=reply,
+                        reply_to_message_id=reply_to_id
+                    )
+            except Exception as e:
+                logger.warning(e)
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle bot errors and exceptions."""
+    logger.critical("Error:", exc_info=context.error)
+
+    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_str = ''.join(tb_list)
+
+    message = (
+        "*An unexpected error occurred.*\n"
+        f"`{context.error}`\n\n"
+        "*Traceback:*\n"
+        f"```{tb_str[-1000:]}```"  # Last 1000 chars to avoid flooding
+    )
+
+    # Send error message to developer/admin
+    await context.bot.send_message(
+        chat_id=bot['admin'],
+        text=message,
+        parse_mode="Markdown"
+    )
+
+    if isinstance(update, Update) and update.effective_chat:
+        try:
+            user_id = update.effective_user.id
+            chat_id = update.effective_chat.id
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="Sorry, something went wrong. Please try again later."
+            )
+        except TelegramError as e:
+            logger.warning(f"Failed to send error message to user: {e}")
 
 
 def main():
