@@ -8,7 +8,7 @@ from google.generativeai.types.safety_types import HarmCategory, HarmBlockThresh
 import bleach
 from telegram.error import TelegramError
 
-from logger_config import logger, setup_logger, load_log_file
+from logger_config import logger, setup_logger, load_log_file, log_message
 from config import bot
 from telegram import (Update, InputFile, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo, KeyboardButton,
                       ReplyKeyboardMarkup)
@@ -27,11 +27,14 @@ SAFETY_SETTINGS = {
 
 config = ''
 bot_token = ''
-persona = ''
+persona = []
 key = ''
 admin = ''
-bot_nickname = ''
+bot_nickname = []
 groups = []
+per = 0
+
+SPE = range(1)
 
 
 def load_config():
@@ -103,11 +106,10 @@ def init_prompt_bot_statement(user_nickname, group_name):
     # if not persona:
     #     persona = bot["persona"]
     #     pre_reply = bot["pre_reply"]
-    global persona
-    persona = persona.format(n=user_nickname, k=bot_nickname, m=group_name)
+    prompt = persona[per]['p'].format(n=user_nickname, k=persona[per]['n'], m=group_name)
     # pre_reply = pre_reply.format(n=user_nickname, k=bot_nickname, m=group_name)
     # logger.info("PERSONA:" + persona)
-    return persona
+    return prompt
 
 
 async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_count=0):
@@ -127,7 +129,7 @@ async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_
 
     try:
         prompt = init_prompt_bot_statement(user_nickname, group_name)
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest", safety_settings=SAFETY_SETTINGS,
+        model = genai.GenerativeModel(model_name="gemini-2.0-flash", safety_settings=SAFETY_SETTINGS,
                                       system_instruction=prompt + "\n\n" + context)
         gemini_messages = ask_by_user(ask_string)
         response = model.generate_content(gemini_messages)
@@ -141,6 +143,9 @@ async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_
         #     "role": "model",
         #     "parts": [{"text": reply_text}]
         # })
+        msg.append({
+            "username": "FROM_BOT",
+            "user_input": reply_text})
         return reply_text
 
     except Exception as e:
@@ -185,11 +190,14 @@ def build_context(user_nickname, user_input):
         f"[system][#additional_instructions]\nWhen replying, do not repeat or paraphrase what the {user_nickname} you are replying to has said. "
         f"Do not introduce yourself, only output the main text of your reply. Do not attach the original text, and do not output all possible replies. "
         f"Do not reply to the post itself, but to the last message of {user_nickname} : {user_input}.")
+    msg.append({
+        "username": user_nickname,
+        "user_input": user_input})
     return context_str
 
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type in ["group", "supergroup"]:
+    if update.effective_chat.type in ["group", "supergroup"] and update.message:
         user_input = update.message.text
         chat_id = update.effective_chat.id
         reply_to_id = update.message.message_id
@@ -203,7 +211,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if group_id in groups:
             try:
-                if is_reply_to_bot or "糯糯" in user_input:
+                if is_reply_to_bot or bot_nickname[per] in user_input:
                     # if update.message.reply_to_message:
                     #     reply_to_id = update.message.reply_to_message.message_id
 
@@ -211,9 +219,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     ctr = construct_context()
                     ctr += build_context(user_nickname, user_input)
-                    msg.append({
-                        "username": user_nickname,
-                        "user_input": user_input})
 
                     reply = await sydney_reply(
                         context=ctr,
@@ -222,9 +227,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         group_name=group_name,
                     )
 
-                    msg.append({
-                        "username": "FROM_BOT",
-                        "user_input": reply})
                     if len(msg) > 15:
                         msg.pop()
 
@@ -255,7 +257,97 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logger.warning(e)
 
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def persona_select_starter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+    user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
+    log_message(user.username, chat.title if chat.title else chat.type, user.is_bot, 'command', '/select')
+
+    keyboard = [
+        [InlineKeyboardButton(p['t'], callback_data=str(index)) for index, p in enumerate(persona)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        text=f"Please select a persona, or send /cancel to cancel request:",
+        reply_markup=reply_markup
+    )
+
+    return SPE
+
+
+async def selection_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    p = query.data
+    global per
+    per = int(p)
+
+    logger.info(f"Persona was changed to type {p}")
+    await query.edit_message_text(f"Persona was changed to type {persona[per]['t']}.")
+
+    return ConversationHandler.END
+
+
+async def persona_starter(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+    user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
+    log_message(user.username, chat.title if chat.title else chat.type, user.is_bot, 'command', '/persona')
+
+    if context.args:
+        text = ' '.join(context.args)
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Approve", callback_data=f"approve:{chat.id}:{user.id}:{user_nickname}:{text}"),
+                InlineKeyboardButton("Reject", callback_data=f"reject:{chat.id}:{user.id}:{user_nickname}:{text}"),
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await context.bot.send_message(
+            chat_id=admin,
+            text=f"User @{user.username or user_nickname} submitted persona request:\n\n{text}",
+            reply_markup=reply_markup
+        )
+
+        await update.message.reply_text(f"You set persona: {text}. Please wait for admin to approve.")
+    else:
+        await update.message.reply_text("Please provide text after /persona, e.g. /persona friendly AI assistant.")
+
+
+async def approval_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    action, chat_id, user_id, user_nickname, content = query.data.split(":", 4)
+
+    if action == "approve":
+        global persona
+        persona = content
+        logger.info(f"{user_nickname}'s submission was approved:\n\n{content}")
+
+        await context.bot.send_message(chat_id=chat_id, text=f"{user_nickname}'s request was approved:\n\n{content}")
+        await query.edit_message_text(f"Approved: {content}")
+
+    elif action == "reject":
+        logger.info(f"{user_nickname}'s submission was rejected:\n\n{content}")
+        await context.bot.send_message(chat_id=chat_id, text=f"{user_nickname}'s request was rejected:\n\n{content}")
+        await query.edit_message_text(f"Rejected: {content}")
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancels the current conversation for retrival and conversion."""
+    user = update.effective_user
+    chat = update.effective_chat
+    log_message(user.username, chat.title if chat.title else chat.type, user.is_bot, 'command', '/cancel')
+
+    await update.message.reply_text("Request cancel.")
+    return ConversationHandler.END
+
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle bot errors and exceptions."""
     logger.critical("Error:", exc_info=context.error)
 
@@ -299,8 +391,19 @@ def main():
             sys.exit(1)
 
         app = Application.builder().token(bot_token).build()
-        app.add_handler(MessageHandler(filters.ALL, message_handler))
-        # app.add_error_handler(error_handler)
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+
+        persona_handler = ConversationHandler(
+            entry_points=[CommandHandler("select", persona_select_starter)],
+            states={
+                SPE: [CallbackQueryHandler(selection_callback_handler)],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)]
+        )
+        app.add_handler(persona_handler)
+        app.add_handler(CommandHandler("persona", persona_starter))
+        app.add_handler(CallbackQueryHandler(approval_callback_handler, pattern="^(approve|reject):"))
+        app.add_error_handler(error_handler)
 
         logger.info("Start polling for updates...")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
