@@ -129,7 +129,8 @@ async def gemini_reply(context, message, bot_statement, user_nickname, group_nam
 
     ask_string = (
         f"\n\nPlease reply to the last comment. No need to introduce yourself, just output the main text of your "
-        f"reply. Do not use parallelism, and do not repeat the content or format of previous replies.")
+        f"reply. Do not use parallelism, and do not repeat the content or format of previous replies. Do not add"
+        f" any unrelated seperator.")
 
     ask_string = bleach.clean(ask_string).strip()
     # logger.info(f"ask_string: {ask_string}")

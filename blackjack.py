@@ -159,6 +159,8 @@ async def action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     chat_id = query.message.chat.id
+    if chat_id not in games:
+        return
     game = games[chat_id]
     player_id = game['players'][game['current']]
 
