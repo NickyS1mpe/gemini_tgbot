@@ -125,7 +125,7 @@ async def gemini_reply(context, message, bot_statement, user_nickname, group_nam
 
     # Clean the context string using bleach
     context = bleach.clean(context).strip()
-    context = "<|im_start|>system\n\n" + context
+    # context = "<|im_start|>system\n\n" + context
 
     ask_string = (
         f"\n\nPlease reply to the last comment. No need to introduce yourself, just output the main text of your "
