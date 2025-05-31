@@ -91,7 +91,7 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
         ]
     ]
     markup = InlineKeyboardMarkup(keyboard)
-    text = (f"<b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})\n"
+    text = (f"Player <b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})\n"
             f"You have 30 seconds to choose.")
     if message_id is None:
         msg = await context.bot.send_message(
@@ -121,7 +121,7 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=game['join_message_id'])
         except Exception as e:
-            logger.warning(f"Error: {e}")
+            logger.warning(f"Error deleting join message: {e}")
 
     deck = deck_template.copy()
     random.shuffle(deck)
@@ -132,6 +132,23 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
 
     game['dealer'] = [deal_card(deck), deal_card(deck)]
     game['current'] = 0
+
+    dealer_hand = game['dealer']
+    dealer_visible = dealer_hand[0]
+    dealer_total = calculate_hand_value(dealer_hand)
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"Dealer's visible card: {dealer_visible}"
+    )
+
+    if dealer_total == 21:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"Dealer has Blackjack! {format_hand(dealer_hand)} (Total: 21)\nGame ends."
+        )
+        del games[chat_id]
+        return
 
     await send_next_turn(context, chat_id, None)
 
