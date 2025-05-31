@@ -14,6 +14,7 @@ from telegram import (Update, InputFile, InlineKeyboardButton, InlineKeyboardMar
                       ReplyKeyboardMarkup)
 from telegram.ext import (Application, CommandHandler,
                           ContextTypes, MessageHandler, filters, ConversationHandler, CallbackQueryHandler)
+from blackjack import (start, join, action_handler)
 
 res = []
 msg = []
@@ -32,7 +33,9 @@ key = ''
 admin = ''
 bot_nickname = []
 groups = []
+bot_model = []
 per = 0
+mdl = 0
 
 SPE = range(1)
 
@@ -45,8 +48,9 @@ def load_config():
     global admin
     global bot_nickname
     global groups
+    global bot_model
 
-    required_keys = ['config', 'bot_token', 'persona', 'key', 'admin', 'bot_nickname', 'groups']
+    required_keys = ['config', 'bot_token', 'persona', 'key', 'admin', 'bot_nickname', 'groups', 'model']
 
     for key in required_keys:
         if key not in bot or not bot[key]:
@@ -60,6 +64,7 @@ def load_config():
     admin = bot['admin']
     bot_nickname = bot['bot_nickname']
     groups = bot['groups']
+    bot_model = bot['model']
 
     setup_logger(config)
     GeminiApiConfig()
@@ -112,7 +117,8 @@ def init_prompt_bot_statement(user_nickname, group_name):
     return prompt
 
 
-async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_count=0):
+async def gemini_reply(context, bot_statement, user_nickname, group_name, retry_count=0):
+    global bot_model
     if retry_count > 3:
         logger.error("Failed after maximum number of retry times")
         return
@@ -129,7 +135,7 @@ async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_
 
     try:
         prompt = init_prompt_bot_statement(user_nickname, group_name)
-        model = genai.GenerativeModel(model_name="gemini-2.0-flash", safety_settings=SAFETY_SETTINGS,
+        model = genai.GenerativeModel(model_name=bot_model[mdl], safety_settings=SAFETY_SETTINGS,
                                       system_instruction=prompt + "\n\n" + context)
         gemini_messages = ask_by_user(ask_string)
         response = model.generate_content(gemini_messages)
@@ -151,7 +157,7 @@ async def sydney_reply(context, bot_statement, user_nickname, group_name, retry_
     except Exception as e:
         traceback.print_exc()
         logger.warning(e)
-        await sydney_reply(context, bot_statement, user_nickname, group_name, retry_count + 1)
+        await gemini_reply(context, bot_statement, user_nickname, group_name, retry_count + 1)
 
 
 @staticmethod
@@ -220,7 +226,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     ctr = construct_context()
                     ctr += build_context(user_nickname, user_input)
 
-                    reply = await sydney_reply(
+                    reply = await gemini_reply(
                         context=ctr,
                         bot_statement="",
                         user_nickname=user_nickname,
@@ -240,7 +246,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     build_context(user_nickname, user_input)
 
-                    reply = await sydney_reply(
+                    reply = await gemini_reply(
                         context=user_input,
                         bot_statement="",
                         user_nickname=user_nickname,
@@ -258,22 +264,27 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def persona_select_starter(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    chat = update.effective_chat
-    user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
-    log_message(user.username, chat.title if chat.title else chat.type, user.is_bot, 'command', '/select')
+    if update.effective_chat.type in ["group", "supergroup"] and update.message:
+        user = update.effective_user
+        chat = update.effective_chat
+        user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
+        group_id = update.effective_chat.id
 
-    keyboard = [
-        [InlineKeyboardButton(p['t'], callback_data=str(index)) for index, p in enumerate(persona)]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+        if group_id in groups:
+            log_message(user.username, chat.title if chat.title else chat.type, user.is_bot, 'command', '/select')
 
-    await update.message.reply_text(
-        text=f"Please select a persona, or send /cancel to cancel request:",
-        reply_markup=reply_markup
-    )
+            keyboard = [
+                [InlineKeyboardButton(p['t'], callback_data=str(index)) for index, p in enumerate(persona)]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-    return SPE
+            await update.message.reply_text(
+                text=f"Please select a persona, or send /cancel to cancel request:",
+                reply_markup=reply_markup
+            )
+
+            return SPE
+    return ConversationHandler.END
 
 
 async def selection_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -401,8 +412,14 @@ def main():
             fallbacks=[CommandHandler("cancel", cancel)]
         )
         app.add_handler(persona_handler)
-        app.add_handler(CommandHandler("persona", persona_starter))
-        app.add_handler(CallbackQueryHandler(approval_callback_handler, pattern="^(approve|reject):"))
+        # app.add_handler(CommandHandler("persona", persona_starter))
+        # app.add_handler(CallbackQueryHandler(approval_callback_handler, pattern="^(approve|reject):"))
+
+        # blackjack game handler
+        app.add_handler(CommandHandler("blackjack", start))
+        app.add_handler(CallbackQueryHandler(join, pattern="^join$"))
+        app.add_handler(CallbackQueryHandler(action_handler, pattern="^(hit|stand)$"))
+
         app.add_error_handler(error_handler)
 
         logger.info("Start polling for updates...")
