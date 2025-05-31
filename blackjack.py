@@ -51,6 +51,30 @@ def format_hand(hand):
     return ' '.join(hand)
 
 
+async def timeout_player(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    chat_id = data['chat_id']
+    player_id = data['player_id']
+    message_id = data['msg_id']
+    game = games.get(chat_id)
+
+    if not game or game['players'][game['current']] != player_id:
+        return
+
+    await context.bot.edit_message_text(chat_id=chat_id,
+                                        message_id=message_id,
+                                        text=(f"Player {game['names'][player_id]} did not respond in time.\n"
+                                              f"Stands with: "
+                                              f"{format_hand(game['hands'][player_id])} "
+                                              f"(Total: {calculate_hand_value(game['hands'][player_id])})"),
+                                        parse_mode='HTML')
+    game['context'] += (f"Player {game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
+                        f"(Total: {calculate_hand_value(game['hands'][player_id])})")
+    game['context'] += '\n\n'
+    game['current'] += 1
+    await send_next_turn(context, chat_id, None)
+
+
 async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id):
     game = games[chat_id]
     if game['current'] >= len(game['players']):
@@ -67,22 +91,27 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
         ]
     ]
     markup = InlineKeyboardMarkup(keyboard)
+    text = (f"<b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})\n"
+            f"You have 30 seconds to choose.")
     if message_id is None:
         msg = await context.bot.send_message(
             chat_id=chat_id,
-            text=f"<b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})",
+            text=text,
             reply_markup=markup,
             parse_mode='HTML'
         )
         game['last_turn'] = msg.message_id
     else:
-        await context.bot.edit_message_text(
+        msg = await context.bot.edit_message_text(
             chat_id=chat_id,
             message_id=message_id,
-            text=f"<b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})",
+            text=text,
             reply_markup=markup,
             parse_mode='HTML'
         )
+    job = context.job_queue.run_once(timeout_player, 30, chat_id=chat_id,
+                                     data={'chat_id': chat_id, 'player_id': player_id, 'msg_id': msg.message_id})
+    game['jobs'][player_id] = job
 
 
 async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
@@ -123,7 +152,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'dealer': [],
             'join_message_id': None,
             'last_turn': None,
-            'context': "Current player's cards and total:\n\n"
+            'context': "Current player's cards and total:\n\n",
+            'jobs': {},
         }
         join_button = [[InlineKeyboardButton("Join", callback_data="join")]]
         msg = await update.message.reply_text(
@@ -145,7 +175,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id not in game['players']:
         game['players'].append(user.id)
         game['names'][user.id] = user_nickname
-        ctx = ''
+        ctx = 'Blackjack game starting in 30 seconds!\n'
         for player in game['players']:
             ctx += f"Player {game['names'][player]} joined the game.\n"
         await query.edit_message_text(
@@ -169,15 +199,19 @@ async def action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # await query.message.reply_text("It's not your turn!")
         return
 
+    job = game['jobs'].pop(player_id, None)
+    if job:
+        job.schedule_removal()
+
     if query.data == "hit":
         card = deal_card(game['deck'])
         game['hands'][player_id].append(card)
         total = calculate_hand_value(game['hands'][player_id])
         if total > 21:
-            await query.edit_message_text(
-                f"Player {game['names'][player_id]} busted with: {format_hand(game['hands'][player_id])} (Total: {total})")
-            game['context'] += (f"Player {game['names'][player_id]} busted with: "
-                                f"{format_hand(game['hands'][player_id])} (Total: {total})")
+            text = (f"Player {game['names'][player_id]} busted with: "
+                    f"{format_hand(game['hands'][player_id])} (Total: {total})")
+            await query.edit_message_text(text)
+            game['context'] += text
             game['context'] += '\n\n'
             game['current'] += 1
             await send_next_turn(context, chat_id, None)
@@ -185,11 +219,10 @@ async def action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_next_turn(context, chat_id, game['last_turn'])
 
     elif query.data == "stand":
-        await query.edit_message_text(
-            f"Player {game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
-            f"(Total: {calculate_hand_value(game['hands'][player_id])})")
-        game['context'] += (f"Player {game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
-                            f"(Total: {calculate_hand_value(game['hands'][player_id])})")
+        text = (f"Player {game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
+                f"(Total: {calculate_hand_value(game['hands'][player_id])})")
+        await query.edit_message_text(text)
+        game['context'] += text
         game['context'] += '\n\n'
         game['current'] += 1
         await send_next_turn(context, chat_id, None)
@@ -242,7 +275,8 @@ async def gemini_blackjack(context, retry_count=0):
     context = "<|im_start|>system\n\n" + context
 
     try:
-        prompt = ('You are a Blackjack master. Given a hand of cards, your only task is to decide whether to "hit" or '
+        prompt = ('You are a Blackjack master. You now play as dealer. '
+                  'Given a hand of cards, your only task is to decide whether to "hit" or '
                   '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
                   '"stand".Do not explain your reasoning or include any other text. '
                   '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
