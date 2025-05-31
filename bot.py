@@ -117,7 +117,7 @@ def init_prompt_bot_statement(user_nickname, group_name):
     return prompt
 
 
-async def gemini_reply(context, bot_statement, user_nickname, group_name, retry_count=0):
+async def gemini_reply(context, message, bot_statement, user_nickname, group_name, retry_count=0):
     global bot_model
     if retry_count > 3:
         logger.error("Failed after maximum number of retry times")
@@ -127,8 +127,9 @@ async def gemini_reply(context, bot_statement, user_nickname, group_name, retry_
     context = bleach.clean(context).strip()
     context = "<|im_start|>system\n\n" + context
 
-    ask_string = (f"Please reply to the last comment. No need to introduce yourself, just output the main text of your "
-                  f"reply. Do not use parallelism, and do not repeat the content or format of previous replies.")
+    ask_string = (
+        f"\n\nPlease reply to the last comment. No need to introduce yourself, just output the main text of your "
+        f"reply. Do not use parallelism, and do not repeat the content or format of previous replies.")
 
     ask_string = bleach.clean(ask_string).strip()
     # logger.info(f"ask_string: {ask_string}")
@@ -137,7 +138,7 @@ async def gemini_reply(context, bot_statement, user_nickname, group_name, retry_
         prompt = init_prompt_bot_statement(user_nickname, group_name)
         model = genai.GenerativeModel(model_name=bot_model[mdl], safety_settings=SAFETY_SETTINGS,
                                       system_instruction=prompt + "\n\n" + context)
-        gemini_messages = ask_by_user(ask_string)
+        gemini_messages = ask_by_user(message + "\n\n" + ask_string)
         response = model.generate_content(gemini_messages)
         reply_text = response.text
         logger.info(reply_text)
@@ -157,7 +158,7 @@ async def gemini_reply(context, bot_statement, user_nickname, group_name, retry_
     except Exception as e:
         traceback.print_exc()
         logger.warning(e)
-        await gemini_reply(context, bot_statement, user_nickname, group_name, retry_count + 1)
+        await gemini_reply(context, message, bot_statement, user_nickname, group_name, retry_count + 1)
 
 
 @staticmethod
@@ -224,10 +225,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.info(f"From user: {user_nickname} receive message: {user_input}")
 
                     ctr = construct_context()
-                    ctr += build_context(user_nickname, user_input)
+                    message = build_context(user_nickname, user_input)
 
                     reply = await gemini_reply(
                         context=ctr,
+                        message=message,
                         bot_statement="",
                         user_nickname=user_nickname,
                         group_name=group_name,
@@ -244,10 +246,11 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 elif random.randint(1, 30) == 3:
                     logger.info(f"From user: {user_nickname} receive message: {user_input}")
 
-                    build_context(user_nickname, user_input)
+                    message = build_context(user_nickname, user_input)
 
                     reply = await gemini_reply(
-                        context=user_input,
+                        context="",
+                        message=message,
                         bot_statement="",
                         user_nickname=user_nickname,
                         # bot_nickname="糯糯",

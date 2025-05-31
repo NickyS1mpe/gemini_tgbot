@@ -238,12 +238,6 @@ async def gemini_blackjack(context, retry_count=0):
     context = bleach.clean(context).strip()
     context = "<|im_start|>system\n\n" + context
 
-    ask_string = (
-        'Please give your choice. No need to introduce yourself, just output a single word: '
-        'either "hit" or "stand". Do not explain your reasoning or include any other text.')
-
-    ask_string = bleach.clean(ask_string).strip()
-
     try:
         prompt = ('You are a Blackjack master. Given a hand of cards, your only task is to decide whether to "hit" or '
                   '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
@@ -252,10 +246,10 @@ async def gemini_blackjack(context, retry_count=0):
                   'Dealer shows: 10♥" \nExpected output: hit\n\n')
 
         model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest", safety_settings=SAFETY_SETTINGS,
-                                      system_instruction=prompt + "\n\n" + context)
+                                      system_instruction=prompt)
         gemini_messages = [{
             "role": "user",
-            "parts": [{"text": ask_string}]
+            "parts": [{"text": context}]
         }]
         response = model.generate_content(gemini_messages)
         reply_text = response.text
