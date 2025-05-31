@@ -138,8 +138,8 @@ async def gemini_reply(context, message, bot_statement, user_nickname, group_nam
     try:
         prompt = init_prompt_bot_statement(user_nickname, group_name)
         model = genai.GenerativeModel(model_name=bot_model[mdl], safety_settings=SAFETY_SETTINGS,
-                                      system_instruction=prompt + "\n\n" + context)
-        gemini_messages = ask_by_user(message + "\n\n" + ask_string)
+                                      system_instruction=prompt)
+        gemini_messages = ask_by_user(context + "\n\n" + message + "\n\n" + ask_string)
         response = model.generate_content(gemini_messages)
         reply_text = response.text
         logger.info(reply_text)
