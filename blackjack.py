@@ -121,7 +121,7 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=game['join_message_id'])
         except Exception as e:
-            logger.warning(f"Error deleting join message: {e}")
+            logger.warning(f"Error deleting join message: {e}.")
 
     deck = deck_template.copy()
     random.shuffle(deck)
@@ -162,6 +162,7 @@ async def schedule_start_game(context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     if chat_id not in games:
+        logger.info(f"New blackjack game starts in chat {chat_id}.")
         games[chat_id] = {
             'players': [],
             'names': {},
@@ -279,6 +280,7 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         else:
             result += f"{name} loses.\n"
 
+    logger.info(f"Blackjack game ends in chat {chat_id}.")
     await context.bot.send_message(chat_id=chat_id, text=result)
     del games[chat_id]
 
