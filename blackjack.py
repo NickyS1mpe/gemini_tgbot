@@ -63,12 +63,12 @@ async def timeout_player(context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.edit_message_text(chat_id=chat_id,
                                         message_id=message_id,
-                                        text=(f"Player {game['names'][player_id]} did not respond in time.\n"
+                                        text=(f"{game['names'][player_id]} did not respond in time.\n"
                                               f"Stands with: "
                                               f"{format_hand(game['hands'][player_id])} "
                                               f"(Total: {calculate_hand_value(game['hands'][player_id])})"),
                                         parse_mode='HTML')
-    game['context'] += (f"Player {game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
+    game['context'] += (f"{game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
                         f"(Total: {calculate_hand_value(game['hands'][player_id])})")
     game['context'] += '\n\n'
     game['current'] += 1
@@ -91,7 +91,7 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
         ]
     ]
     markup = InlineKeyboardMarkup(keyboard)
-    text = (f"Player <b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})\n"
+    text = (f"<b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})\n"
             f"You have 30 seconds to choose.")
     if message_id is None:
         msg = await context.bot.send_message(
@@ -194,7 +194,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game['names'][user.id] = user_nickname
         ctx = 'Blackjack game starting in 30 seconds!\n'
         for player in game['players']:
-            ctx += f"Player {game['names'][player]} joined the game.\n"
+            ctx += f"{game['names'][player]} joined the game.\n"
         await query.edit_message_text(
             text=ctx,
             reply_markup=InlineKeyboardMarkup(
@@ -225,7 +225,7 @@ async def action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         game['hands'][player_id].append(card)
         total = calculate_hand_value(game['hands'][player_id])
         if total > 21:
-            text = (f"Player {game['names'][player_id]} busted with: "
+            text = (f"{game['names'][player_id]} busted with: "
                     f"{format_hand(game['hands'][player_id])} (Total: {total})")
             await query.edit_message_text(text)
             game['context'] += text
@@ -236,7 +236,7 @@ async def action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_next_turn(context, chat_id, game['last_turn'])
 
     elif query.data == "stand":
-        text = (f"Player {game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
+        text = (f"{game['names'][player_id]} stands with: {format_hand(game['hands'][player_id])} "
                 f"(Total: {calculate_hand_value(game['hands'][player_id])})")
         await query.edit_message_text(text)
         game['context'] += text
