@@ -115,22 +115,23 @@ async def schedule_start_game(context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    games[chat_id] = {
-        'players': [],
-        'names': {},
-        'hands': {},
-        'dealer': [],
-        'join_message_id': None,
-        'last_turn': None,
-        'context': "Current player's cards and total:\n\n"
-    }
-    join_button = [[InlineKeyboardButton("Join", callback_data="join")]]
-    msg = await update.message.reply_text(
-        "Blackjack game starting in 30 seconds! Press Join:",
-        reply_markup=InlineKeyboardMarkup(join_button)
-    )
-    games[chat_id]['join_message_id'] = msg.message_id
-    context.job_queue.run_once(schedule_start_game, 30, chat_id=chat_id)
+    if chat_id not in games:
+        games[chat_id] = {
+            'players': [],
+            'names': {},
+            'hands': {},
+            'dealer': [],
+            'join_message_id': None,
+            'last_turn': None,
+            'context': "Current player's cards and total:\n\n"
+        }
+        join_button = [[InlineKeyboardButton("Join", callback_data="join")]]
+        msg = await update.message.reply_text(
+            "Blackjack game starting in 30 seconds! Press Join:",
+            reply_markup=InlineKeyboardMarkup(join_button)
+        )
+        games[chat_id]['join_message_id'] = msg.message_id
+        context.job_queue.run_once(schedule_start_game, 30, chat_id=chat_id)
 
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
