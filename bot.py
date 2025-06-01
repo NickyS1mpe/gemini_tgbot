@@ -1,3 +1,4 @@
+import asyncio
 import random
 import sys
 import traceback
@@ -269,8 +270,14 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+    asyncio.create_task(_shutdown(context))
+
+
+async def _shutdown(context: ContextTypes.DEFAULT_TYPE):
     await context.application.stop()
     await context.application.shutdown()
+    # Give some time for clean exit
+    await asyncio.sleep(1)
     sys.exit(0)
 
 
