@@ -32,7 +32,10 @@ def load_balances(filename="balances.txt"):
         with open(filename, "r") as f:
             for line in f:
                 user_id, amount = line.strip().split(":")
-                balances[int(user_id)] = int(amount)
+                if user_id == 'AI':
+                    balances[user_id] = int(amount)
+                else:
+                    balances[int(user_id)] = int(amount)
         if 'AI' not in balances:
             balances['AI'] = 1000
     except FileNotFoundError:
@@ -113,7 +116,7 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
     ]
     markup = InlineKeyboardMarkup(keyboard)
     text = (f"<b>{game['names'][player_id]}</b>'s turn\nHand: {format_hand(hand)} (Total: {value})\n"
-            f"You have 30 seconds to choose.")
+            f"You have 20 seconds to choose.")
     if message_id is None:
         msg = await context.bot.send_message(
             chat_id=chat_id,
@@ -130,7 +133,7 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
             reply_markup=markup,
             parse_mode='HTML'
         )
-    job = context.job_queue.run_once(timeout_player, 30, chat_id=chat_id,
+    job = context.job_queue.run_once(timeout_player, 20, chat_id=chat_id,
                                      data={'chat_id': chat_id, 'player_id': player_id, 'msg_id': msg.message_id})
     game['jobs'][player_id] = job
 
@@ -152,6 +155,7 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         game['hands'][player_id] = [deal_card(deck), deal_card(deck)]
 
     game['dealer'] = [deal_card(deck), deal_card(deck)]
+    game['AI']['hands'] = [deal_card(deck), deal_card(deck)]
     game['current'] = 0
 
     dealer_hand = game['dealer']
@@ -166,8 +170,12 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     if dealer_total == 21:
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"Dealer has Blackjack! {format_hand(dealer_hand)} (Total: 21)\nGame ends."
+            text=(f"Dealer has Blackjack! {format_hand(dealer_hand)} (Total: 21)\nGame ends."
+                  f"Send /blackjack to start a new game. Send /add_balance to ask AI for points.")
         )
+
+        logger.info(f"Blackjack game ends in chat {chat_id}.")
+        save_balances()
         del games[chat_id]
         return
 
@@ -216,7 +224,9 @@ async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         if bet_amount != game['bets'][user_id]:
             game['bets'][user_id] = bet_amount
 
-            text = "30s to make you bet (default is 50). Current bets:\n\n"
+            text = (f"20s to make you bet (default is 50). Current bets:\n\n"
+                    f"Gemini has bet {game['AI']['bets']} (Balance: {balances.get('AI')})\n")
+
             for player_id in game['players']:
                 text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
                          f"(Balance: {balances.get(player_id, 1000) - game['bets'][player_id]})\n")
@@ -298,7 +308,7 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
     ]
 
     # load_balances()
-    text = "30s to make you bet (default is 50). Current bets:\n\n"
+    text = "20s to make you bet (default is 50). Current bets:\n\n"
     no_bal = []
 
     balance = balances['AI']
@@ -318,13 +328,18 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
         if re.fullmatch(r"\d+", reply):
             bet = int(reply)
 
-        balances['AI'] = balance - bet
-        text += (f"Gemini has bet {bet} "
+        # balances['AI'] = balance - bet
+        game['AI']['name'] = 'Gemini'
+        game['AI']['bets'] = bet
+        balances['AI'] -= bet
+
+        text += (f"Gemini has bet {game['AI']['bets']} "
                  f"(Balance: {balances['AI']})\n")
 
     else:
         text += f"Gemini has lost all its points so that he cannot play with you.\n"
 
+    # initial bet
     for player_id in game['players']:
         # game['bets'][player_id] = 50  # Default bet
         current_bet = game['bets'].get(player_id, 50)
@@ -351,7 +366,7 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
     )
     game['bet_message_id'] = message.message_id
     # await bet_callback_handler(context, chat_id)
-    context.job_queue.run_once(betting_timeout, when=30, data={"chat_id": chat_id})
+    context.job_queue.run_once(betting_timeout, when=20, data={"chat_id": chat_id})
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, groups=None):
@@ -369,15 +384,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, groups=None)
             'context': "Current player's cards and total:\n\n",
             'jobs': {},
             'bets': {},
-            'betting_done': set()
+            'betting_done': set(),
+            'AI': {}
         }
         join_button = [[InlineKeyboardButton("Join", callback_data="join")]]
         msg = await update.message.reply_text(
-            "Blackjack game starting in 30 seconds! Press Join:",
+            "Blackjack game starting in 20 seconds! Press Join:",
             reply_markup=InlineKeyboardMarkup(join_button)
         )
         games[chat_id]['join_message_id'] = msg.message_id
-        context.job_queue.run_once(send_bet, 30, chat_id=chat_id)
+        context.job_queue.run_once(send_bet, 20, chat_id=chat_id)
     else:
         return
 
@@ -401,7 +417,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id not in game['players']:
         game['players'].append(user.id)
         game['names'][user.id] = user_nickname
-        ctx = 'Blackjack game starting in 30 seconds!\n'
+        ctx = 'Blackjack game starting in 20 seconds!\n'
         for player in game['players']:
             ctx += f"{game['names'][player]} joined the game.\n"
         await query.edit_message_text(
@@ -456,54 +472,103 @@ async def action_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     game = games[chat_id]
-    dealer = game['dealer']
-    dealer_context = (f"Your current cards: {format_hand(dealer)} "
-                      f"(Total: {calculate_hand_value(dealer)})")
-    dealer_context += '\n\n'
-    # while calculate_hand_value(dealer) < 17:
-    #     dealer.append(deal_card(game['deck']))
+
+    gemini = game['AI']['hands']
+    gemini_context = (f"Your current cards: {format_hand(gemini)} "
+                      f"(Total: {calculate_hand_value(gemini)})")
+    gemini_context += '\n\n'
+
+    msg = await context.bot.send_message(
+        chat_id=chat_id,
+        text=f"<b>Gemini</b>'s turn\nHand: {format_hand(gemini)} (Total: {calculate_hand_value(gemini)})\n",
+        parse_mode='HTML'
+    )
+    msg_id = msg.message_id
+
     while True:
-        prompt = ('You are a Blackjack master. You now play as dealer. '
+        prompt = ('You are a Blackjack master. '
                   'Given a hand of cards, your only task is to decide whether to "hit" or '
                   '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
                   '"stand".Do not explain your reasoning or include any other text. '
                   '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
                   'Dealer shows: 10♥" \nExpected output: hit\n\n')
-        reply = await gemini_blackjack(prompt, game['context'] + dealer_context, 0)
+        reply = await gemini_blackjack(prompt, game['context'] + gemini_context, 0)
         if 'hit' in reply:
-            dealer.append(deal_card(game['deck']))
-            if calculate_hand_value(dealer) > 21:
+            gemini.append(deal_card(game['deck']))
+            await context.bot.edit_message_text(
+                text=f"<b>Gemini</b>'s turn\nHand: {format_hand(gemini)} (Total: {calculate_hand_value(gemini)})\n",
+                message_id=msg_id,
+                chat_id=chat_id,
+                parse_mode='HTML'
+            )
+            if calculate_hand_value(gemini) > 21:
+                await context.bot.edit_message_text(
+                    text=(f"Gemini busted with: "
+                          f"{format_hand(gemini)} (Total: {calculate_hand_value(gemini)})"),
+                    message_id=msg_id,
+                    chat_id=chat_id,
+                    parse_mode='HTML'
+                )
                 break
-            dealer_context = (f"Your current cards: {format_hand(dealer)} "
-                              f"(Total: {calculate_hand_value(dealer)})")
-            dealer_context += '\n\n'
+            gemini_context = (f"Your current cards: {format_hand(gemini)} "
+                              f"(Total: {calculate_hand_value(gemini)})")
+            gemini_context += '\n\n'
         else:
+            await context.bot.edit_message_text(
+                text=(f"Gemini stands with: {format_hand(gemini)} "
+                      f"(Total: {calculate_hand_value(gemini)})"),
+                message_id=msg_id,
+                chat_id=chat_id,
+                parse_mode='HTML'
+            )
             break
 
+    dealer = game['dealer']
+    while calculate_hand_value(dealer) < 17:
+        dealer.append(deal_card(game['deck']))
     dealer_total = calculate_hand_value(dealer)
-    result = f"Gemini's hand: {format_hand(dealer)} (Total: {dealer_total})\n\n"
+
+    result = f"Dealer hand: {format_hand(dealer)} (Total: {dealer_total})\n\n"
+    gemini_total = calculate_hand_value(gemini)
+    gemini_bet = game['AI']['bets']
+    if gemini_total > 21:
+        result += f"<b>Gemini</b> busted."
+    elif dealer_total > 21 or gemini_total > dealer_total:
+        result += f"<b>Gemini</b> wins!"
+        balances['AI'] = balances['AI'] + 2 * gemini_bet  # Win: get back bet + win amount
+    elif gemini_total == dealer_total:
+        result += f"<b>Gemini</b> ties."
+        balances['AI'] = balances['AI'] + gemini_bet  # Tie: get back bet
+    else:
+        result += f"<b>Gemini</b> loses."
+
+    result += f" Bet: {gemini_bet}, New Balance: {balances['AI']}\n\n"
+
     for pid in game['players']:
         player_total = calculate_hand_value(game['hands'][pid])
         name = game['names'][pid]
         bet = game['bets'].get(pid, 50)
 
         if player_total > 21:
-            result += f"{name} busted."
+            result += f"<b>{name}</b> busted."
         elif dealer_total > 21 or player_total > dealer_total:
-            result += f"{name} wins!"
+            result += f"<b>{name}</b> wins!"
             balances[pid] = balances.get(pid, 1000) + 2 * bet  # Win: get back bet + win amount
         elif player_total == dealer_total:
-            result += f"{name} ties."
+            result += f"<b>{name}</b> ties."
             balances[pid] = balances.get(pid, 1000) + bet  # Tie: get back bet
         else:
-            result += f"{name} loses."
+            result += f"<b>{name}</b> loses."
 
-        result += f" Bet: {bet}, New Balance: {balances[pid]}\n"
+        result += f" Bet: {bet}, New Balance: {balances[pid]}\n\n"
 
-    result += "\nGame ends. Send /blackjack to start a new game. Send /add_balance to ask AI for points."
+    result += "Game ends. Send /blackjack to start a new game. Send /add_balance to ask AI for points."
     logger.info(f"Blackjack game ends in chat {chat_id}.")
     save_balances()
-    await context.bot.send_message(chat_id=chat_id, text=result)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=result,
+        parse_mode='HTML')
     del games[chat_id]
 
 
