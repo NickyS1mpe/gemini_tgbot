@@ -270,15 +270,11 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-    asyncio.create_task(_shutdown(context))
+    async def shutdown():
+        await context.application.stop()
+        await context.application.shutdown()
 
-
-async def _shutdown(context: ContextTypes.DEFAULT_TYPE):
-    await context.application.stop()
-    await context.application.shutdown()
-    # Give some time for clean exit
-    await asyncio.sleep(1)
-    sys.exit(0)
+    asyncio.get_event_loop().call_later(1, lambda: asyncio.create_task(shutdown()))
 
 
 def main():
