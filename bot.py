@@ -263,6 +263,11 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # await update.message.reply_text("Bot is shutting down...")
+    await context.bot.send_message(
+        chat_id=bot['admin'],
+        text="Bot is shutting down...",
+        parse_mode="Markdown"
+    )
 
     await context.application.stop()
     await context.application.shutdown()
