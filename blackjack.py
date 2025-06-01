@@ -1,4 +1,5 @@
 import random
+import re
 import traceback
 
 import bleach
@@ -15,13 +16,6 @@ SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
 }
-
-prompt = [('You are a Blackjack master. You now play as dealer. '
-           'Given a hand of cards, your only task is to decide whether to "hit" or '
-           '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
-           '"stand".Do not explain your reasoning or include any other text. '
-           '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
-           'Dealer shows: 10♥" \nExpected output: hit\n\n')]
 
 # Game state storage
 games = {}
@@ -205,13 +199,17 @@ async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if data.startswith("bet_"):
         if data == "bet_allin":
             bet_amount = balance + current_bet
+        elif data in ["bet_2x", "bet_3x", "bet_5x"]:
+            multiplier = int(data.split("_")[1][0])  # Extract 2, 3, or 5
+            bet_amount = current_bet * multiplier
         else:
             bet_amount = int(data.split("_")[1])
             bet_amount += current_bet
 
         if bet_amount > balance + current_bet:
             # await query.answer("Sorry you have not enough balances", show_alert=True)
-            return
+            bet_amount = balance + current_bet
+            # return
 
         if bet_amount != game['bets'][user_id]:
             game['bets'][user_id] = bet_amount
@@ -219,13 +217,15 @@ async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             text = "30s to make you bet (default is 50). Current bets:\n\n"
             for player_id in game['players']:
                 text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
-                         f"(Balance: {balances.get(user_id, 1000) - game['bets'][player_id]})\n")
+                         f"(Balance: {balances.get(player_id, 1000) - game['bets'][player_id]})\n")
 
             keyboard = [
-                [InlineKeyboardButton("20", callback_data="bet_20"),
-                 InlineKeyboardButton("50", callback_data="bet_50")],
-                [InlineKeyboardButton("80", callback_data="bet_80"),
-                 InlineKeyboardButton("100", callback_data="bet_100")],
+                [InlineKeyboardButton("50", callback_data="bet_50"),
+                 InlineKeyboardButton("100", callback_data="bet_100"),
+                 InlineKeyboardButton("500", callback_data="bet_500")],
+                [InlineKeyboardButton("2x", callback_data="bet_2x"),
+                 InlineKeyboardButton("3x", callback_data="bet_3x"),
+                 InlineKeyboardButton("5x", callback_data="bet_5x")],
                 [InlineKeyboardButton("All In", callback_data="bet_allin")],
                 # [InlineKeyboardButton("Done", callback_data="done")]
             ]
@@ -285,10 +285,12 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Error deleting join message: {e}.")
 
     keyboard = [
-        [InlineKeyboardButton("20", callback_data="bet_20"),
-         InlineKeyboardButton("50", callback_data="bet_50")],
-        [InlineKeyboardButton("80", callback_data="bet_80"),
-         InlineKeyboardButton("100", callback_data="bet_100")],
+        [InlineKeyboardButton("50", callback_data="bet_50"),
+         InlineKeyboardButton("100", callback_data="bet_100"),
+         InlineKeyboardButton("500", callback_data="bet_500")],
+        [InlineKeyboardButton("2x", callback_data="bet_2x"),
+         InlineKeyboardButton("3x", callback_data="bet_3x"),
+         InlineKeyboardButton("5x", callback_data="bet_5x")],
         [InlineKeyboardButton("All In", callback_data="bet_allin")],
         # [InlineKeyboardButton("Done", callback_data="done")]
     ]
@@ -434,6 +436,12 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     # while calculate_hand_value(dealer) < 17:
     #     dealer.append(deal_card(game['deck']))
     while True:
+        prompt = ('You are a Blackjack master. You now play as dealer. '
+                  'Given a hand of cards, your only task is to decide whether to "hit" or '
+                  '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
+                  '"stand".Do not explain your reasoning or include any other text. '
+                  '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
+                  'Dealer shows: 10♥" \nExpected output: hit\n\n')
         reply = await gemini_blackjack(prompt, game['context'] + dealer_context, 0)
         if 'hit' in reply:
             dealer.append(deal_card(game['deck']))
@@ -469,6 +477,50 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     logger.info(f"Blackjack game ends in chat {chat_id}.")
     await context.bot.send_message(chat_id=chat_id, text=result)
     del games[chat_id]
+
+
+async def add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, groups=None):
+    chat = update.effective_chat
+    user = update.effective_user
+    chat_id = chat.id
+    user_id = user.id
+    if chat_id in groups:
+        user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
+        if user_id in balances:
+            balance = balances.get(user_id)
+            if balance == 0:
+                prompt = (
+                    f"You are a blackjack game assistant. A player named {user_nickname} currently has a balance of 0. "
+                    f"Please decide a fair amount of in-game currency to give them so they can continue playing. "
+                    f"The amount should be reasonable for someone restarting the game.\n\n"
+                    f"Only respond with the number (e.g., 100, 200)."
+                )
+                context_text = (
+                    f"Player: {user_nickname}\n"
+                    f"Current balance: 0\n"
+                )
+                reply = await gemini_blackjack(prompt, context_text)
+                reply = reply.strip()
+
+                if re.fullmatch(r"\d+", reply):
+                    new_balance = int(reply)
+                    balances[user_id] = new_balance
+                    await update.message.reply_text(
+                        f"{user_nickname}, you’ve been given {new_balance} points to continue playing!")
+                else:
+                    await update.message.reply_text(f"Invalid response from AI. Please try again later.")
+            elif balance > 0:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"{user_nickname}, you still have {balances.get(user_id)} left.",
+                )
+        else:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{user_nickname}, you haven't played yet. Each new player receives a starting balance of 1000."
+            )
+
+    return
 
 
 async def gemini_blackjack(prompt, context, retry_count=0):
