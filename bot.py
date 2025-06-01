@@ -14,7 +14,7 @@ from telegram import (Update, InputFile, InlineKeyboardButton, InlineKeyboardMar
                       ReplyKeyboardMarkup)
 from telegram.ext import (Application, CommandHandler,
                           ContextTypes, MessageHandler, filters, ConversationHandler, CallbackQueryHandler)
-from blackjack import (start, join, action_handler)
+from blackjack import (start, join, action_handler, bet_callback_handler, load_balances, save_balances)
 
 res = []
 msg = []
@@ -68,6 +68,7 @@ def load_config():
 
     setup_logger(config)
     GeminiApiConfig()
+    load_balances()
 
     logger.info("Loading config successfully.")
 
@@ -423,6 +424,7 @@ def main():
         app.add_handler(CommandHandler("blackjack", start))
         app.add_handler(CallbackQueryHandler(join, pattern="^join$"))
         app.add_handler(CallbackQueryHandler(action_handler, pattern="^(hit|stand)$"))
+        app.add_handler(CallbackQueryHandler(bet_callback_handler, pattern=r"^(bet_|done$)"))
 
         app.add_error_handler(error_handler)
 
@@ -432,6 +434,7 @@ def main():
     except BaseException as e:
         logger.error(e)
     finally:
+        save_balances()
         logger.info("***** TELEGRAM BOT STOP *****")
         sys.exit()
 

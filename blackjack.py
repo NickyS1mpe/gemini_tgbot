@@ -22,6 +22,24 @@ games = {}
 suits = ['♠', '♥', '♦', '♣']
 ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 deck_template = [f"{rank}{suit}" for suit in suits for rank in ranks]
+balances = {}
+
+
+def load_balances(filename="balances.txt"):
+    # global balances
+    try:
+        with open(filename, "r") as f:
+            for line in f:
+                user_id, amount = line.strip().split(":")
+                balances[int(user_id)] = int(amount)
+    except FileNotFoundError:
+        logger.error("Balance file not found")
+
+
+def save_balances(filename="balances.txt"):
+    with open(filename, "w") as f:
+        for user_id, amount in balances.items():
+            f.write(f"{user_id}:{amount}\n")
 
 
 def deal_card(deck):
@@ -117,11 +135,11 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
 async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     game = games[chat_id]
 
-    if 'join_message_id' in game and game['join_message_id']:
+    if 'bet_message_id' in game and game['bet_message_id']:
         try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=game['join_message_id'])
+            await context.bot.delete_message(chat_id=chat_id, message_id=game['bet_message_id'])
         except Exception as e:
-            logger.warning(f"Error deleting join message: {e}.")
+            logger.warning(f"Error deleting bet message: {e}.")
 
     deck = deck_template.copy()
     random.shuffle(deck)
@@ -153,10 +171,136 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     await send_next_turn(context, chat_id, None)
 
 
-# This is the async wrapper for JobQueue
-async def schedule_start_game(context: ContextTypes.DEFAULT_TYPE):
-    chat_id = context.job.chat_id
+async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    chat_id = query.message.chat.id
+
+    if chat_id not in games:
+        return
+
+    game = games.get(chat_id)
+    if user_id not in game['players'] or user_id in game['betting_done']:
+        return
+
+    current_bet = game['bets'].get(user_id)
+    # default balance 1000 if new user
+    balance = balances.get(user_id, 1000) - current_bet
+    # if user_id not in game['bets'] and balance < 50:
+    #     current_bet = balance
+
+    data = query.data
+    if data.startswith("bet_"):
+        if data == "bet_allin":
+            bet_amount = balance + current_bet
+        else:
+            bet_amount = int(data.split("_")[1])
+            bet_amount += current_bet
+
+        if bet_amount > balance + current_bet:
+            # await query.answer("Sorry you have not enough balances", show_alert=True)
+            return
+
+        game['bets'][user_id] = bet_amount
+        text = "30s to make you bet (default is 50). Current bets:\n\n"
+        for player_id in game['players']:
+            text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
+                     f"(Balance: {balances.get(user_id, 1000) - game['bets'][player_id]})\n")
+
+        keyboard = [
+            [InlineKeyboardButton("20", callback_data="bet_20"),
+             InlineKeyboardButton("50", callback_data="bet_50")],
+            [InlineKeyboardButton("80", callback_data="bet_80"),
+             InlineKeyboardButton("100", callback_data="bet_100")],
+            [InlineKeyboardButton("All In", callback_data="bet_allin")],
+            # [InlineKeyboardButton("Done", callback_data="done")]
+        ]
+
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif data == 'done':
+        if user_id not in game['betting_done']:
+            game['betting_done'].add(user_id)
+
+        if len(game['betting_done']) == len(game['players']):
+            # Deduct balances
+            for pid, bet in game['bets'].items():
+                balances[pid] = balances.get(pid, 1000) - bet
+            # save_balances()
+
+            # await start_game(context, chat_id)
+
+
+async def betting_timeout(context: ContextTypes.DEFAULT_TYPE):
+    data = context.job.data
+    chat_id = data["chat_id"]
+
+    if chat_id not in games:
+        return
+
+    game = games[chat_id]
+
+    # Finalize betting for users who didn't press "Done"
+    for pid in game['players']:
+        if pid not in game['betting_done']:
+            game['betting_done'].add(pid)
+
+    # Deduct balances only once
+    for pid, bet in game['bets'].items():
+        balances[pid] = balances.get(pid, 1000) - bet
+
     await start_game(context, chat_id)
+
+
+# This is the async wrapper for JobQueue
+async def send_bet(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.chat_id
+    if chat_id not in games:
+        return
+
+    game = games.get(chat_id)
+
+    if 'join_message_id' in game and game['join_message_id']:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=game['join_message_id'])
+        except Exception as e:
+            logger.warning(f"Error deleting join message: {e}.")
+
+    keyboard = [
+        [InlineKeyboardButton("20", callback_data="bet_20"),
+         InlineKeyboardButton("50", callback_data="bet_50")],
+        [InlineKeyboardButton("80", callback_data="bet_80"),
+         InlineKeyboardButton("100", callback_data="bet_100")],
+        [InlineKeyboardButton("All In", callback_data="bet_allin")],
+        # [InlineKeyboardButton("Done", callback_data="done")]
+    ]
+
+    # load_balances()
+    text = "30s to make you bet (default is 50). Current bets:\n\n"
+    for player_id in game['players']:
+        # game['bets'][player_id] = 50  # Default bet
+        current_bet = game['bets'].get(player_id, 50)
+        # default balance 1000 if new user
+        balance = balances.get(player_id, 1000)
+        if player_id not in game['bets'] and balance < 50:
+            current_bet = balance
+        game['bets'][player_id] = current_bet
+
+        text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
+                 f"(Balance: {balance - game['bets'][player_id]})\n")
+
+    message = await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    game['bet_message_id'] = message.message_id
+    # await bet_callback_handler(context, chat_id)
+    context.job_queue.run_once(betting_timeout, when=30, data={"chat_id": chat_id})
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -169,9 +313,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'hands': {},
             'dealer': [],
             'join_message_id': None,
+            'bet_message_id': None,
             'last_turn': None,
             'context': "Current player's cards and total:\n\n",
             'jobs': {},
+            'bets': {},
+            'betting_done': set()
         }
         join_button = [[InlineKeyboardButton("Join", callback_data="join")]]
         msg = await update.message.reply_text(
@@ -179,7 +326,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(join_button)
         )
         games[chat_id]['join_message_id'] = msg.message_id
-        context.job_queue.run_once(schedule_start_game, 30, chat_id=chat_id)
+        context.job_queue.run_once(send_bet, 30, chat_id=chat_id)
 
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -271,15 +418,22 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     for pid in game['players']:
         player_total = calculate_hand_value(game['hands'][pid])
         name = game['names'][pid]
-        if player_total > 21:
-            result += f"{name} busted.\n"
-        elif dealer_total > 21 or player_total > dealer_total:
-            result += f"{name} wins!\n"
-        elif player_total == dealer_total:
-            result += f"{name} ties.\n"
-        else:
-            result += f"{name} loses.\n"
+        bet = game['bets'].get(pid, 50)
 
+        if player_total > 21:
+            result += f"{name} busted."
+        elif dealer_total > 21 or player_total > dealer_total:
+            result += f"{name} wins!"
+            balances[pid] = balances.get(pid, 1000) + 2 * bet  # Win: get back bet + win amount
+        elif player_total == dealer_total:
+            result += f"{name} ties."
+            balances[pid] = balances.get(pid, 1000) + bet  # Tie: get back bet
+        else:
+            result += f"{name} loses."
+
+        result += f" Bet: {bet}, New Balance: {balances[pid]}\n"
+
+    result += "\nGame ends. Send /blackjack to start a new game."
     logger.info(f"Blackjack game ends in chat {chat_id}.")
     await context.bot.send_message(chat_id=chat_id, text=result)
     del games[chat_id]
