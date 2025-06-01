@@ -274,9 +274,9 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # await context.application.shutdown()
     await asyncio.sleep(0.5)
 
-    quit()
+    # quit()
     # sys.exit(0)
-    # raise SystemExit(0)
+    raise SystemExit(0)
 
 
 def main():
