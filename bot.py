@@ -256,6 +256,18 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             logger.warning(f"Failed to send error message to user: {e}")
 
 
+async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != admin:
+        await update.message.reply_text("You are not authorized.")
+        return
+
+    # await update.message.reply_text("Bot is shutting down...")
+
+    await context.application.stop()
+    sys.exit(0)
+
+
 def main():
     try:
         load_config()
@@ -286,6 +298,7 @@ def main():
         app.add_handler(CallbackQueryHandler(bet_callback_handler, pattern=r"^(bet_|done$)"))
 
         app.add_error_handler(error_handler)
+        app.add_handler(CommandHandler("stop_bot", stop_bot))
 
         logger.info("Start polling for updates...")
         app.run_polling(allowed_updates=Update.ALL_TYPES)
