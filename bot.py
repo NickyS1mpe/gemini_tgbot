@@ -270,11 +270,13 @@ async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-    async def shutdown():
-        await context.application.stop()
-        await context.application.shutdown()
+    await context.application.stop()
+    # await context.application.shutdown()
+    await asyncio.sleep(0.5)
 
-    asyncio.get_event_loop().call_later(1, lambda: asyncio.create_task(shutdown()))
+    quit()
+    # sys.exit(0)
+    # raise SystemExit(0)
 
 
 def main():
@@ -310,7 +312,7 @@ def main():
         app.add_handler(CommandHandler("stop_bot", stop_bot))
 
         logger.info("Start polling for updates...")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        app.run_polling(allowed_updates=Update.ALL_TYPES, close_loop=False)
 
     except BaseException as e:
         logger.error(e)
