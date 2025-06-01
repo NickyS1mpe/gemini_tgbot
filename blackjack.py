@@ -16,6 +16,13 @@ SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
 }
 
+prompt = [('You are a Blackjack master. You now play as dealer. '
+           'Given a hand of cards, your only task is to decide whether to "hit" or '
+           '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
+           '"stand".Do not explain your reasoning or include any other text. '
+           '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
+           'Dealer shows: 10♥" \nExpected output: hit\n\n')]
+
 # Game state storage
 games = {}
 
@@ -173,7 +180,11 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
 
 async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Failed to answer callback query: {e}")
+        return
     user_id = query.from_user.id
     chat_id = query.message.chat.id
 
@@ -202,25 +213,27 @@ async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             # await query.answer("Sorry you have not enough balances", show_alert=True)
             return
 
-        game['bets'][user_id] = bet_amount
-        text = "30s to make you bet (default is 50). Current bets:\n\n"
-        for player_id in game['players']:
-            text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
-                     f"(Balance: {balances.get(user_id, 1000) - game['bets'][player_id]})\n")
+        if bet_amount != game['bets'][user_id]:
+            game['bets'][user_id] = bet_amount
 
-        keyboard = [
-            [InlineKeyboardButton("20", callback_data="bet_20"),
-             InlineKeyboardButton("50", callback_data="bet_50")],
-            [InlineKeyboardButton("80", callback_data="bet_80"),
-             InlineKeyboardButton("100", callback_data="bet_100")],
-            [InlineKeyboardButton("All In", callback_data="bet_allin")],
-            # [InlineKeyboardButton("Done", callback_data="done")]
-        ]
+            text = "30s to make you bet (default is 50). Current bets:\n\n"
+            for player_id in game['players']:
+                text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
+                         f"(Balance: {balances.get(user_id, 1000) - game['bets'][player_id]})\n")
 
-        await query.edit_message_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+            keyboard = [
+                [InlineKeyboardButton("20", callback_data="bet_20"),
+                 InlineKeyboardButton("50", callback_data="bet_50")],
+                [InlineKeyboardButton("80", callback_data="bet_80"),
+                 InlineKeyboardButton("100", callback_data="bet_100")],
+                [InlineKeyboardButton("All In", callback_data="bet_allin")],
+                # [InlineKeyboardButton("Done", callback_data="done")]
+            ]
+
+            await query.edit_message_text(
+                text=text,
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
 
     elif data == 'done':
         if user_id not in game['betting_done']:
@@ -251,7 +264,8 @@ async def betting_timeout(context: ContextTypes.DEFAULT_TYPE):
 
     # Deduct balances only once
     for pid, bet in game['bets'].items():
-        balances[pid] = balances.get(pid, 1000) - bet
+        if pid in game['players']:
+            balances[pid] = balances.get(pid, 1000) - bet
 
     await start_game(context, chat_id)
 
@@ -281,6 +295,7 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
 
     # load_balances()
     text = "30s to make you bet (default is 50). Current bets:\n\n"
+    no_bal = []
     for player_id in game['players']:
         # game['bets'][player_id] = 50  # Default bet
         current_bet = game['bets'].get(player_id, 50)
@@ -290,8 +305,15 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
             current_bet = balance
         game['bets'][player_id] = current_bet
 
-        text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
-                 f"(Balance: {balance - game['bets'][player_id]})\n")
+        if current_bet == 0:
+            text += f"{game['names'][player_id]} has no balance left. Will be kicked out.\n"
+            no_bal.append(player_id)
+        else:
+            text += (f"{game['names'][player_id]} has bet {game['bets'][player_id]} "
+                     f"(Balance: {balance - game['bets'][player_id]})\n")
+
+    for p in no_bal:
+        game['players'].remove(p)
 
     message = await context.bot.send_message(
         chat_id=chat_id,
@@ -303,9 +325,9 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
     context.job_queue.run_once(betting_timeout, when=30, data={"chat_id": chat_id})
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, groups=None):
     chat_id = update.effective_chat.id
-    if chat_id not in games:
+    if chat_id in groups and chat_id not in games:
         logger.info(f"New blackjack game starts in chat {chat_id}.")
         games[chat_id] = {
             'players': [],
@@ -327,16 +349,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         games[chat_id]['join_message_id'] = msg.message_id
         context.job_queue.run_once(send_bet, 30, chat_id=chat_id)
+    else:
+        return
 
 
 async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    # await query.answer()
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.warning(f"Failed to answer callback query: {e}")
+        return
     user = query.from_user
     chat_id = query.message.chat.id
     user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
 
     game = games.get(chat_id)
+    if not games or not game:
+        return
+
     if user.id not in game['players']:
         game['players'].append(user.id)
         game['names'][user.id] = user_nickname
@@ -402,7 +434,7 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     # while calculate_hand_value(dealer) < 17:
     #     dealer.append(deal_card(game['deck']))
     while True:
-        reply = await gemini_blackjack(game['context'] + dealer_context, 0)
+        reply = await gemini_blackjack(prompt, game['context'] + dealer_context, 0)
         if 'hit' in reply:
             dealer.append(deal_card(game['deck']))
             if calculate_hand_value(dealer) > 21:
@@ -439,7 +471,7 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     del games[chat_id]
 
 
-async def gemini_blackjack(context, retry_count=0):
+async def gemini_blackjack(prompt, context, retry_count=0):
     if retry_count > 3:
         logger.error("Failed after maximum number of retry times")
         return
@@ -448,13 +480,6 @@ async def gemini_blackjack(context, retry_count=0):
     context = "<|im_start|>system\n\n" + context
 
     try:
-        prompt = ('You are a Blackjack master. You now play as dealer. '
-                  'Given a hand of cards, your only task is to decide whether to "hit" or '
-                  '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
-                  '"stand".Do not explain your reasoning or include any other text. '
-                  '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
-                  'Dealer shows: 10♥" \nExpected output: hit\n\n')
-
         model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest", safety_settings=SAFETY_SETTINGS,
                                       system_instruction=prompt)
         gemini_messages = [{
