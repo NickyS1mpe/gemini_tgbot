@@ -33,6 +33,8 @@ def load_balances(filename="balances.txt"):
             for line in f:
                 user_id, amount = line.strip().split(":")
                 balances[int(user_id)] = int(amount)
+        if 'AI' not in balances:
+            balances['AI'] = 1000
     except FileNotFoundError:
         logger.error("Balance file not found")
 
@@ -298,6 +300,31 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
     # load_balances()
     text = "30s to make you bet (default is 50). Current bets:\n\n"
     no_bal = []
+
+    balance = balances['AI']
+    if balance > 0:
+        prompt = (
+            f"You are a Blackjack master with a balance of {balance}. "
+            f"Initial bet is 50 or all your balance if it is less than 50."
+            "The betting options are any positive whole number which is divisible by 50, "
+            "but don't bet more than your current balance. "
+            "Decide how much you want to bet for this round. Respond only with the number of your bet. "
+            "(e.g., 100, 200)."
+        )
+        reply = await gemini_blackjack(prompt, '')
+        reply = reply.strip()
+        bet = balance
+
+        if re.fullmatch(r"\d+", reply):
+            bet = int(reply)
+
+        balances['AI'] = balance - bet
+        text += (f"Gemini has bet {bet} "
+                 f"(Balance: {balances['AI']})\n")
+
+    else:
+        text += f"Gemini has lost all its points so that he cannot play with you.\n"
+
     for player_id in game['players']:
         # game['bets'][player_id] = 50  # Default bet
         current_bet = game['bets'].get(player_id, 50)
@@ -473,8 +500,9 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
 
         result += f" Bet: {bet}, New Balance: {balances[pid]}\n"
 
-    result += "\nGame ends. Send /blackjack to start a new game."
+    result += "\nGame ends. Send /blackjack to start a new game. Send /add_balance to ask AI for points."
     logger.info(f"Blackjack game ends in chat {chat_id}.")
+    save_balances()
     await context.bot.send_message(chat_id=chat_id, text=result)
     del games[chat_id]
 
@@ -506,7 +534,7 @@ async def add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, groups
                     new_balance = int(reply)
                     balances[user_id] = new_balance
                     await update.message.reply_text(
-                        f"{user_nickname}, you’ve been given {new_balance} points to continue playing!")
+                        f"{user_nickname}, you’ve been given {new_balance} points by Gemini to continue playing!")
                 else:
                     await update.message.reply_text(f"Invalid response from AI. Please try again later.")
             elif balance > 0:

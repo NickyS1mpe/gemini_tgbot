@@ -318,7 +318,7 @@ def main():
     except BaseException as e:
         logger.error(e)
     finally:
-        save_balances()
+        # save_balances()
         logger.info("***** TELEGRAM BOT STOP *****")
         sys.exit()
 
