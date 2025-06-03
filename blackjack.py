@@ -319,7 +319,7 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
             "The betting options are any positive whole number which is divisible by 50, "
             "but don't bet more than your current balance. "
             "Decide how much you want to bet for this round. Respond only with the number of your bet. "
-            "(e.g., 100, 200)."
+            "(e.g., 100, 200). Betting can be more aggressive."
         )
         reply = await gemini_blackjack(prompt, '')
         reply = reply.strip()
@@ -586,7 +586,7 @@ async def add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, groups
                     f"You are a blackjack game assistant. A player named {user_nickname} currently has a balance of 0. "
                     f"Please decide a fair amount of in-game currency to give them so they can continue playing. "
                     f"The amount should be reasonable for someone restarting the game.\n\n"
-                    f"Only respond with the number (e.g., 100, 200)."
+                    f"Only respond with the number (e.g., 100, 200). The amount can be more aggressive."
                 )
                 context_text = (
                     f"Player: {user_nickname}\n"
