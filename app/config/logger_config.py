@@ -1,4 +1,5 @@
 import logging
+import os
 from logging.handlers import RotatingFileHandler
 
 logger = logging.getLogger(__name__)
@@ -7,6 +8,10 @@ log_file = ""
 
 def load_log_file(log_path):
     global log_file
+
+    if not os.path.exists(log_path):
+        with open(log_path, "w") as f:
+            pass
     log_file = log_path
 
 

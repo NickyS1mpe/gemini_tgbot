@@ -1,3 +1,4 @@
+import os
 import random
 import re
 import traceback
@@ -5,9 +6,8 @@ import traceback
 import bleach
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-                          ContextTypes, JobQueue)
-from logger_config import logger
+from telegram.ext import (ContextTypes)
+# from app.config.logger_config import logger
 import google.generativeai as genai
 
 SAFETY_SETTINGS = {
@@ -25,10 +25,18 @@ ranks = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K']
 deck_template = [f"{rank}{suit}" for suit in suits for rank in ranks]
 balances = {}
 
+logger = None
 
-def load_balances(filename="balances.txt"):
+
+def load_balances(log, filename="./app/data/balances.txt"):
     # global balances
+    global logger
+    logger = log
+
     try:
+        if not os.path.exists(filename):
+            open(filename, "w").close()
+
         with open(filename, "r") as f:
             for line in f:
                 user_id, amount = line.strip().split(":")
@@ -38,6 +46,8 @@ def load_balances(filename="balances.txt"):
                     balances[int(user_id)] = int(amount)
         if 'AI' not in balances:
             balances['AI'] = 1000
+
+        logger.info('Loading balance successfully.')
     except FileNotFoundError:
         logger.error("Balance file not found")
 

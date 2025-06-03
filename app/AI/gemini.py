@@ -5,8 +5,7 @@ import bleach
 import google.generativeai as genai
 from google.generativeai.types.safety_types import HarmCategory, HarmBlockThreshold
 
-from config import bot
-from logger_config import logger
+# from app.config.logger_config import logger
 
 SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
@@ -16,6 +15,7 @@ SAFETY_SETTINGS = {
 }
 
 msg = []
+logger = None
 
 
 def construct_context():
@@ -143,7 +143,8 @@ async def gemini_reply(context, message, bot_statement, user_nickname, group_nam
 
 
 @staticmethod
-def GeminiApiConfig(key):
+def GeminiApiConfig(key, log):
+    global logger
     # keys = bot['key']
     # keys = keys.split("|")
     # keys = [key.strip() for key in keys]
@@ -152,4 +153,5 @@ def GeminiApiConfig(key):
     # api_key = random.choice(keys)
     api_key = key
     genai.configure(api_key=api_key)
+    logger = log
     logger.info("Config Gemini API successfully.")

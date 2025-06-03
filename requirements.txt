@@ -2,3 +2,4 @@ telepot
 google-generativeai
 bleach
 python-telegram-bot~=22.0
+python-telegram-bot[job-queue]

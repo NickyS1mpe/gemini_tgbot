@@ -8,12 +8,12 @@ from telegram.error import TelegramError
 from telegram.ext import (Application, CommandHandler,
                           ContextTypes, MessageHandler, filters, ConversationHandler, CallbackQueryHandler)
 
-from blackjack import (start, join, action_handler, bet_callback_handler, load_balances, save_balances, add_balance)
-from config import bot
-from gemini import (GeminiApiConfig, gemini_reply, construct_context, build_context)
-from logger_config import logger, setup_logger, log_message
+from game.blackjack import (start, join, action_handler, bet_callback_handler, load_balances, add_balance)
+from config.config import bot
+from AI.gemini import (GeminiApiConfig, gemini_reply, construct_context, build_context)
+from config.logger_config import logger, setup_logger, log_message
 
-config = ''
+log = ''
 bot_token = ''
 admin = ''
 key = ''
@@ -29,7 +29,7 @@ SPE = range(1)
 
 
 def load_config():
-    global config
+    global log
     global bot_token
     global persona
     global key
@@ -38,14 +38,14 @@ def load_config():
     global groups
     global bot_model
 
-    required_keys = ['config', 'bot_token', 'persona', 'key', 'admin', 'bot_nickname', 'groups', 'model']
+    required_keys = ['log', 'bot_token', 'persona', 'key', 'admin', 'bot_nickname', 'groups', 'model']
 
     for key in required_keys:
         if key not in bot or not bot[key]:
             # logger.error(f"Missing or empty configuration key: {key}")
             raise ValueError(f"Missing or empty configuration key: {key}")
 
-    config = bot['config']
+    log = bot['log']
     bot_token = bot['bot_token']
     persona = bot['persona']
     key = bot['key']
@@ -54,9 +54,9 @@ def load_config():
     groups = bot['groups']
     bot_model = bot['model']
 
-    setup_logger(config)
-    GeminiApiConfig(key)
-    load_balances()
+    setup_logger(log)
+    GeminiApiConfig(key, logger)
+    load_balances(logger)
 
     logger.info("Loading config successfully.")
 
