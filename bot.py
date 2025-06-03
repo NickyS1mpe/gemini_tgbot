@@ -313,7 +313,7 @@ def main():
         app.add_handler(CommandHandler("stop_bot", stop_bot))
 
         logger.info("Start polling for updates...")
-        app.run_polling(allowed_updates=Update.ALL_TYPES)
+        app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
     except BaseException as e:
         logger.error(e)
