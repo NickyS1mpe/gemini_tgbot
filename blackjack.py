@@ -167,17 +167,17 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         text=f"Dealer's visible card: {dealer_visible}"
     )
 
-    if dealer_total == 21:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=(f"Dealer has Blackjack! {format_hand(dealer_hand)} (Total: 21)\nGame ends."
-                  f"Send /blackjack to start a new game. Send /add_balance to ask AI for points.")
-        )
-
-        logger.info(f"Blackjack game ends in chat {chat_id}.")
-        save_balances()
-        del games[chat_id]
-        return
+    # if dealer_total == 21:
+    #     await context.bot.send_message(
+    #         chat_id=chat_id,
+    #         text=(f"Dealer has Blackjack! {format_hand(dealer_hand)} (Total: 21)\nGame ends."
+    #               f"Send /blackjack to start a new game. Send /add_balance to ask AI for points.")
+    #     )
+    #
+    #     logger.info(f"Blackjack game ends in chat {chat_id}.")
+    #     save_balances()
+    #     del games[chat_id]
+    #     return
 
     await send_next_turn(context, chat_id, None)
 
