@@ -1,2 +1,3 @@
 app/config/config.py
 ./test.py
+app/data/balances.txt
