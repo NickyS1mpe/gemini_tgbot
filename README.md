@@ -3,8 +3,6 @@
 A multifunctional Telegram bot built with `python-telegram-bot`. It supports AI chat responses, persona selection,
 persona approval by admins, Blackjack gaming, and more.
 
----
-
 ## Features
 
 - **AI Group Chat Assistant**: Responds in group chats when replied to or mentioned.
@@ -14,8 +12,6 @@ persona approval by admins, Blackjack gaming, and more.
 - **Logging**: Logs all interactions and errors.
 - **Error Notifications**: Critical errors are reported to the admin.
 - **Shutdown Command**: Admins can safely stop the bot from Telegram.
-
----
 
 ## Configuration
 
@@ -58,8 +54,6 @@ bot = {
 | `/add_balance` | Add balance to a user (admin only)                |
 | `/stop_bot`    | Shut down the bot (admin only)                    |
 
----
-
 ## Blackjack Game Flow
 
 1. Type `/blackjack` to start a game.
@@ -68,8 +62,6 @@ bot = {
 4. Players bet using inline buttons.
 5. Players choose to **Hit** or **Stand**.
 6. Results and updated balances are shown.
-
----
 
 ## Persona Selection & Submission
 
@@ -85,16 +77,12 @@ bot = {
 - Users receive a simple: “Something went wrong” message.
 - Admin gets full traceback information for debugging.
 
----
-
-## ⚙️ Setup
+## Setup
 
 ### Requirements
 
 - Python 3.11+
 - AI API Key for Google Gemini
-
----
 
 ## Install
 
@@ -111,8 +99,6 @@ pip install -r requirements.txt
 ```bash
 python3 -m app.bot
 ```
-
----
 
 ## License
 
