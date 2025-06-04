@@ -8,7 +8,8 @@ from telegram.error import TelegramError
 from telegram.ext import (Application, CommandHandler,
                           ContextTypes, MessageHandler, filters, ConversationHandler, CallbackQueryHandler)
 
-from game.blackjack import (start, join, action_handler, bet_callback_handler, load_balances, add_balance)
+from game.blackjack import (start, join, action_handler, bet_callback_handler, load_balances, add_balance,
+                            save_balances)
 from config.config import bot
 from AI.gemini import (GeminiApiConfig, gemini_reply, construct_context, build_context)
 from config.logger_config import logger, setup_logger, log_message
@@ -256,6 +257,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         except TelegramError as e:
             logger.warning(f"Failed to send error message to user: {e}")
 
+    sys.exit(1)
+
 
 async def stop_bot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -318,7 +321,7 @@ def main():
     except BaseException as e:
         logger.error(e)
     finally:
-        # save_balances()
+        save_balances()
         logger.info("***** TELEGRAM BOT STOP *****")
         sys.exit()
 
