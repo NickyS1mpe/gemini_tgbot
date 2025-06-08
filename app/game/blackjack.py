@@ -28,7 +28,7 @@ balances = {}
 logger = None
 
 
-def load_balances(log, filename="./app/data/balances.txt"):
+def load_balances(log, filename="./data/balances.txt"):
     # global balances
     global logger
     logger = log
@@ -44,6 +44,7 @@ def load_balances(log, filename="./app/data/balances.txt"):
                     balances[user_id] = int(amount)
                 else:
                     balances[int(user_id)] = int(amount)
+
         if 'AI' not in balances:
             balances['AI'] = 1000
 
@@ -148,6 +149,63 @@ async def send_next_turn(context: ContextTypes.DEFAULT_TYPE, chat_id, message_id
     game['jobs'][player_id] = job
 
 
+async def insurance_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    chat_id = query.message.chat.id
+
+    if chat_id not in games or user_id not in games[chat_id]['players']:
+        return
+
+    game = games[chat_id]
+    if 'insurance' not in game or (user_id in game['insurance'] and not game['insurance'][user_id]):
+        return
+
+    data = query.data
+    if data == "insurance_yes":
+        game['insurance'][user_id] = True
+        game['bets'][user_id] //= 2
+    else:
+        game['insurance'][user_id] = False
+
+
+async def insurance_timeout(context: ContextTypes.DEFAULT_TYPE):
+    chat_id = context.job.data['chat_id']
+    msg_id = context.job.data['msg_id']
+    game = games[chat_id]
+
+    for pid in game['players']:
+        if pid not in game['insurance']:
+            game['insurance'][pid] = False  # default to no
+
+    dealer = game['dealer']
+    if calculate_hand_value(dealer) == 21:
+        text = (
+            f"Dealer hand: {format_hand(dealer)} (Total: {dealer})\nDealer has Blackjack!\n")
+        for pid in game['players']:
+            if game['insurance'].get(pid):
+                payout = game['bets'][pid] * 2  # 2:1 payout
+                balances[pid] = balances.get(pid, 1000) + payout
+                text += f"{game['names'][pid]} wins insurance, bet {payout}, new Balance {balances[pid]}.\n"
+            else:
+                text += f"{game['names'][pid]} lost, bet {game['bets'][pid]} new Balance {balances[pid]}.\n"
+
+        text += "\nGame ends. Send /blackjack to start a new game. Send /add_balance to ask AI for points."
+        await context.bot.edit_message_text(
+            message_id=msg_id,  # edit the message with the insurance result
+            chat_id=chat_id, text=text)
+        # await finish_game(context, chat_id)
+
+        logger.info(f"Blackjack game ends in chat {chat_id}.")
+        del games[chat_id]
+    else:
+        await context.bot.edit_message_text(
+            message_id=msg_id,  # edit the message with the insurance result
+            chat_id=chat_id, text="Dealer does not have Blackjack. Game continues.")
+        await send_next_turn(context, chat_id, None)
+
+
 async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     game = games[chat_id]
 
@@ -164,7 +222,7 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     for player_id in game['players']:
         game['hands'][player_id] = [deal_card(deck), deal_card(deck)]
 
-    game['dealer'] = [deal_card(deck), deal_card(deck)]
+    game['dealer'] = ['AA', 'KK']
     game['AI']['hands'] = [deal_card(deck), deal_card(deck)]
     game['current'] = 0
 
@@ -177,19 +235,36 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         text=f"Dealer's visible card: {dealer_visible}"
     )
 
+    if dealer_visible[0] == 'A':
+        game['insurance'] = {}  # Track who bought insurance
+        keyboard = [
+            [InlineKeyboardButton(
+                "Yes", callback_data="insurance_yes"),
+                InlineKeyboardButton("No", callback_data="insurance_no")]
+        ]
+        msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text="Dealer shows an Ace. Would you like to buy insurance?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        game['insurance_message_id'] = msg.message_id
+        context.job_queue.run_once(
+            insurance_timeout, 10, data={'chat_id': chat_id, 'msg_id': msg.message_id})
+
     # if dealer_total == 21:
     #     await context.bot.send_message(
     #         chat_id=chat_id,
     #         text=(f"Dealer has Blackjack! {format_hand(dealer_hand)} (Total: 21)\nGame ends."
     #               f"Send /blackjack to start a new game. Send /add_balance to ask AI for points.")
     #     )
-    #
+
     #     logger.info(f"Blackjack game ends in chat {chat_id}.")
     #     save_balances()
     #     del games[chat_id]
     #     return
 
-    await send_next_turn(context, chat_id, None)
+    else:
+        await send_next_turn(context, chat_id, None)
 
 
 async def bet_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -329,7 +404,7 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
             "The betting options are any positive whole number which is divisible by 50, "
             "but don't bet more than your current balance. "
             "Decide how much you want to bet for this round. Respond only with the number of your bet. "
-            "(e.g., 100, 200). Betting can be more aggressive."
+            "(e.g., 100, 200). Betting can be more aggressive, and sometimes you can try all in."
         )
         reply = await gemini_blackjack(prompt, '')
         reply = reply.strip()
@@ -376,7 +451,8 @@ async def send_bet(context: ContextTypes.DEFAULT_TYPE):
     )
     game['bet_message_id'] = message.message_id
     # await bet_callback_handler(context, chat_id)
-    context.job_queue.run_once(betting_timeout, when=20, data={"chat_id": chat_id})
+    context.job_queue.run_once(
+        betting_timeout, when=20, data={"chat_id": chat_id})
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, groups=None):
@@ -395,7 +471,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE, groups=None)
             'jobs': {},
             'bets': {},
             'betting_done': set(),
-            'AI': {}
+            'AI': {},
+            'insurance': {},
+            'insurance_message_id': None,
         }
         join_button = [[InlineKeyboardButton("Join", callback_data="join")]]
         msg = await update.message.reply_text(
@@ -418,7 +496,8 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user = query.from_user
     chat_id = query.message.chat.id
-    user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
+    user_nickname = (update.effective_user.first_name or "") + \
+                    ' ' + (update.effective_user.last_name or "")
 
     game = games.get(chat_id)
     if not games or not game:
@@ -494,14 +573,14 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         parse_mode='HTML'
     )
     msg_id = msg.message_id
+    prompt = ('You are a Blackjack master. '
+              'Given a hand of cards, your only task is to decide whether to "hit" or '
+              '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
+              '"stand".Do not explain your reasoning or include any other text. '
+              '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
+              'Dealer shows: 10♥" \nExpected output: hit\n\n')
 
     while True:
-        prompt = ('You are a Blackjack master. '
-                  'Given a hand of cards, your only task is to decide whether to "hit" or '
-                  '"stand" based on standard Blackjack strategy. Must only reply with a single word: either "hit" or '
-                  '"stand".Do not explain your reasoning or include any other text. '
-                  '\nExample input: "Hand: 9♠ 7♦ (Total: 16), '
-                  'Dealer shows: 10♥" \nExpected output: hit\n\n')
         reply = await gemini_blackjack(prompt, game['context'] + gemini_context, 0)
         if 'hit' in reply:
             gemini.append(deal_card(game['deck']))
@@ -545,7 +624,8 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
         result += f"<b>Gemini</b> busted."
     elif dealer_total > 21 or gemini_total > dealer_total:
         result += f"<b>Gemini</b> wins!"
-        balances['AI'] = balances['AI'] + 2 * gemini_bet  # Win: get back bet + win amount
+        balances['AI'] = balances['AI'] + 2 * \
+                         gemini_bet  # Win: get back bet + win amount
     elif gemini_total == dealer_total:
         result += f"<b>Gemini</b> ties."
         balances['AI'] = balances['AI'] + gemini_bet  # Tie: get back bet
@@ -563,7 +643,8 @@ async def finish_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
             result += f"<b>{name}</b> busted."
         elif dealer_total > 21 or player_total > dealer_total:
             result += f"<b>{name}</b> wins!"
-            balances[pid] = balances.get(pid, 1000) + 2 * bet  # Win: get back bet + win amount
+            # Win: get back bet + win amount
+            balances[pid] = balances.get(pid, 1000) + 2 * bet
         elif player_total == dealer_total:
             result += f"<b>{name}</b> ties."
             balances[pid] = balances.get(pid, 1000) + bet  # Tie: get back bet
@@ -588,7 +669,8 @@ async def add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, groups
     chat_id = chat.id
     user_id = user.id
     if chat_id in groups:
-        user_nickname = (update.effective_user.first_name or "") + ' ' + (update.effective_user.last_name or "")
+        user_nickname = (update.effective_user.first_name or "") + \
+                        ' ' + (update.effective_user.last_name or "")
         if user_id in balances:
             balance = balances.get(user_id)
             if balance == 0:

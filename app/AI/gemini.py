@@ -19,7 +19,7 @@ logger = None
 
 
 def construct_context():
-    context_str = f'[system](#context)\nThe current messages in the group are:\n\n'
+    context_str = f'[system](#context)\nSome history messages in the group are:\n\n'
     for m in msg:
         if m['username'] == "FROM_BOT":
             context = f"You replied {m['user_input'][:10000]}"
@@ -30,23 +30,29 @@ def construct_context():
                 context += f", the content is {m['user_input'][:10000]}"
             context += "\n"
         context_str += context
+    context_str += (
+        f"[system][#additional_instructions]\nDo not repeat or paraphrase what the previous messages have said. "
+        f"Do not introduce yourself, only output the main text of your reply. Do not attach the original text, "
+        f"and do not output all possible replies. You don't necessary to reply to the history message,"
+        f"but you can take them as references for the current topic in group.\n\n")
     return context_str
 
 
 def build_context(user_nickname, user_input):
     context_str = f'[system](#context)\nHere is the message from {user_nickname}.\n'
-    context_str += "\n"
+    context_str += f", the content is {user_input}"
     context_str += "\n\n"
     context_str += (
         f"[system][#additional_instructions]\nWhen replying, do not repeat or paraphrase what the {user_nickname} you are replying to has said. "
-        f"Do not introduce yourself, only output the main text of your reply. Do not attach the original text, and do not output all possible replies. "
-        f"Do not reply to the post itself, but to the last message of {user_nickname} : {user_input}.")
+        f"Do not introduce yourself, only output the main text of your reply. Do not attach the original text, "
+        f"and do not output all possible replies."
+        f"Please reply to the message of {user_nickname} : {user_input}.\n\n")
     msg.append({
         "username": user_nickname,
         "user_input": user_input})
 
     if len(msg) > 15:
-        msg.pop()
+        msg.pop(0)
 
     return context_str
 
@@ -104,12 +110,13 @@ async def gemini_reply(context, message, bot_statement, user_nickname, group_nam
 
     # Clean the context string using bleach
     context = bleach.clean(context).strip()
-    # context = "<|im_start|>system\n\n" + context
+    context = "<|im_start|>system\n\n" + context
 
     ask_string = (
         f"\n\nPlease reply to the last comment. No need to introduce yourself, just output the main text of your "
         f"reply. Do not use parallelism, and do not repeat the content or format of previous replies. Do not add"
-        f" any unrelated seperator. Do not repeat the message content using rhetorical questions.")
+        f" any unrelated seperator. Do not repeat the message content using rhetorical questions."
+        f"Do not out put indicator like '<|im_end|>'.")
 
     ask_string = bleach.clean(ask_string).strip()
     # logger.info(f"ask_string: {ask_string}")
@@ -117,8 +124,8 @@ async def gemini_reply(context, message, bot_statement, user_nickname, group_nam
     try:
         prompt = init_prompt_bot_statement(user_nickname, group_name, persona, per)
         model = genai.GenerativeModel(model_name=bot_model[mdl], safety_settings=SAFETY_SETTINGS,
-                                      system_instruction=prompt)
-        gemini_messages = ask_by_user(context + "\n\n" + message + "\n\n" + ask_string)
+                                      system_instruction=prompt + "\n\n" + message + "\n\n" + context)
+        gemini_messages = ask_by_user(ask_string)
         response = model.generate_content(gemini_messages)
         reply_text = response.text
         logger.info(reply_text)

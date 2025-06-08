@@ -8,8 +8,7 @@ from telegram.error import TelegramError
 from telegram.ext import (Application, CommandHandler,
                           ContextTypes, MessageHandler, filters, ConversationHandler, CallbackQueryHandler)
 
-from game.blackjack import (start, join, action_handler, bet_callback_handler, load_balances, add_balance,
-                            save_balances)
+from game.blackjack import (insurance_handler, start, join, action_handler, bet_callback_handler, load_balances, add_balance,save_balances)
 from config.config import bot
 from AI.gemini import (GeminiApiConfig, gemini_reply, construct_context, build_context)
 from config.logger_config import logger, setup_logger, log_message
@@ -310,6 +309,8 @@ def main():
         app.add_handler(CallbackQueryHandler(join, pattern="^join$"))
         app.add_handler(CallbackQueryHandler(action_handler, pattern="^(hit|stand)$"))
         app.add_handler(CallbackQueryHandler(bet_callback_handler, pattern=r"^(bet_|done$)"))
+        app.add_handler(CallbackQueryHandler(insurance_handler, pattern="^insurance_"))
+
         app.add_handler(CommandHandler("add_balance", lambda u, c: add_balance(u, c, groups=groups)))
 
         app.add_error_handler(error_handler)
