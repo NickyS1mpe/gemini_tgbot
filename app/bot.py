@@ -11,7 +11,7 @@ from telegram.ext import (Application, CommandHandler,
 from game.blackjack import (insurance_handler, start, join, action_handler, bet_callback_handler, load_balances, add_balance,save_balances)
 from config.config import bot
 from AI.gemini import (GeminiApiConfig, gemini_reply, construct_context, build_context)
-from config.logger_config import logger, setup_logger, log_message
+from app.config.logger_config import logger, setup_logger, log_message
 
 log = ''
 bot_token = ''

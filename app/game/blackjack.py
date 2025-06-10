@@ -28,7 +28,7 @@ balances = {}
 logger = None
 
 
-def load_balances(log, filename="./data/balances.txt"):
+def load_balances(log, filename="./app/data/balances.txt"):
     # global balances
     global logger
     logger = log
@@ -222,7 +222,7 @@ async def start_game(context: ContextTypes.DEFAULT_TYPE, chat_id):
     for player_id in game['players']:
         game['hands'][player_id] = [deal_card(deck), deal_card(deck)]
 
-    game['dealer'] = ['AA', 'KK']
+    game['dealer'] = [deal_card(deck), deal_card(deck)]
     game['AI']['hands'] = [deal_card(deck), deal_card(deck)]
     game['current'] = 0
 
